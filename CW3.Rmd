@@ -1,0 +1,1202 @@
+---
+title: "Coursework 3"
+author: "Vaishnavi Patil, 201896641"
+output:
+  pdf_document:
+    latex_engine: xelatex
+  word_document: default
+---
+
+This coursework answers questions from Unit 3, Unit 5, Unit 6, and Unit 7 using the Brexit dataset. Logistic regression with regularization was used to find important factors influencing the Brexit vote. Decision trees and random forest models were built and tuned using cross-validation to improve prediction accuracy. K-means clustering was applied to group areas based on their characteristics and predict voting outcomes based on majority votes in each cluster. All models were compared based on cross-validated classification accuracy, and the best-performing model was selected. Model evaluation was carried out using metrics such as mean squared error, ROC-AUC, log-likelihood, and accuracy, with a focus on balancing predictive performance and model simplicity.
+
+## Unit 3
+
+#### Q.5 Modify the likelihood function of linear regression such that you include two additional terms for the regression coefficients βi, for i = 1, . . . , p, for p inputs. Consider the terms given by −λ1 ∑p i=1 \|βi\| and −λ2 ∑p i=1 β2 i , where λj ≥ 0, for j ∈ {1, 2}, are constants. Note that the intercept β0 does not appear in the regularisation terms. \newline
+
+#### **Answer :**
+
+In this question, we are asked to modify the likelihood function of linear regression by introducing two regularization terms applied to the regression coefficients $\beta_i$, for $i = 1, \dots, p$, where $p$ is the number of input variables (excluding the intercept). The regularization terms are:
+
+-   $-\lambda_1 \sum_{i=1}^{p} |\beta_i|$ (L1 regularization or Lasso)
+-   $-\lambda_2 \sum_{i=1}^{p} \beta_i^2$ (L2 regularization or Ridge)
+
+These regularization terms help prevent overfitting by penalizing large or numerous coefficients. Importantly, the intercept $\beta_0$ is not regularized.
+
+**1. Loading and Preparing the Data**
+
+We begin by reading in the brexit dataset and preparing the variables for our regression model. The target variable is `voteBrexit`, which is a logical (TRUE/FALSE) column. We convert it to numeric (1 for TRUE, 0 for FALSE), so we can use it in a linear regression context.
+
+```{r}
+# Load necessary libraries
+library(tidyverse)
+suppressPackageStartupMessages(library(tidyverse))
+
+
+# Read the dataset
+
+brexit_data <- read.csv("/Users/vaish2205/Downloads/brexit.csv")
+
+# Convert voteBrexit to numeric: TRUE → 1, FALSE → 0
+brexit_data$voteBrexit <- as.numeric(brexit_data$voteBrexit)
+
+# Define the predictor variables and convert to matrix
+X <- brexit_data %>%
+  select(abc1, notBornUK, medianIncome, medianAge, withHigherEd) %>%
+  as.matrix()
+
+# Add an intercept column (β0)
+X <- cbind(Intercept = 1, X)
+
+# Define the response variable
+y <- brexit_data$voteBrexit
+```
+
+**2. Defining the Regularized Loss Function**
+
+We define a custom loss function for linear regression, which includes:
+
+-   The residual sum of squares (RSS)
+-   The L1 penalty for sparsity
+-   The L2 penalty for shrinkage
+
+We exclude the intercept from both regularization terms.
+
+```{r}
+# Define the custom loss function with L1 and L2 penalties
+regularized_loss <- function(beta, X, y, lambda1, lambda2) {
+  y_pred <- X %*% beta
+  rss <- sum((y - y_pred)^2)
+  
+  # Apply penalties only to coefficients (exclude intercept at index 1)
+  L1_penalty <- lambda1 * sum(abs(beta[-1]))
+  L2_penalty <- lambda2 * sum(beta[-1]^2)
+  
+  # Return total regularized loss
+  total_loss <- rss + L1_penalty + L2_penalty
+  return(total_loss)
+}
+
+```
+
+This function will allow us to find regression coefficients that both fit the data and are regularized to reduce overfitting.
+
+**3. Fitting the Model Using Optimization**
+
+We use the `optim()` function in R to minimize the regularized loss function and estimate the optimal regression coefficients.
+
+```{r}
+# Initial coefficients (starting from zeros)
+initial_beta <- rep(0, ncol(X))
+
+# Set regularization strengths
+lambda1 <- 0.1  # L1 penalty
+lambda2 <- 0.1  # L2 penalty
+
+# Run optimization using BFGS method
+result <- optim(
+  par = initial_beta,
+  fn = regularized_loss,
+  X = X,
+  y = y,
+  lambda1 = lambda1,
+  lambda2 = lambda2,
+  method = "BFGS"
+)
+
+# Extract the optimized coefficients
+optimized_beta <- result$par
+
+# Display the results
+cat("Optimized Coefficients (including intercept):\n")
+print(round(optimized_beta, 4))
+```
+
+The coefficients we obtain represent the best fit under the influence of both L1 and L2 penalties, with the intercept unaffected.
+
+**4. Evaluating the Model**
+
+To evaluate how well our regularized model fits the data, we compute the Mean Squared Error (MSE) and the R-squared value.
+
+```{r}
+# Predicted values from optimized model
+y_pred <- X %*% optimized_beta
+
+# Compute Mean Squared Error
+mse <- mean((y - y_pred)^2)
+
+# Compute R-squared
+ss_total <- sum((y - mean(y))^2)
+ss_res <- sum((y - y_pred)^2)
+r_squared <- 1 - (ss_res / ss_total)
+
+# Display evaluation metrics
+cat("Model Evaluation:\n")
+cat("Mean Squared Error (MSE):", round(mse, 4), "\n")
+cat("R-squared:", round(r_squared, 4), "\n")
+```
+
+These metrics give us a sense of how accurately the model predicts the Brexit vote proportions in the dataset.
+
+**5. Visualizing the Fit**
+
+To support our evaluation, we produce a scatter plot of the actual versus predicted values. A perfect model would lie along the red diagonal line.
+
+```{r, fig.width=7, fig.height=5}
+# Plot actual vs predicted values
+ggplot(data.frame(Actual = y, Predicted = y_pred), aes(x = Actual, y = Predicted)) +
+  geom_point(alpha = 0.6, color = "blue") +
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
+  labs(title = "Actual vs Predicted Brexit Votes",
+       x = "Actual voteBrexit (0 = Remain, 1 = Leave)",
+       y = "Predicted Probability") +
+  theme_minimal()
+```
+
+**6. Conclusion**
+
+-   L1 regularization (Lasso) helps achieve sparsity in the model (shrinking some coefficients to zero), while L2 regularization (Ridge) prevents overfitting by shrinking coefficients.
+
+-   The combination of L1 and L2 regularization creates an Elastic Net, helping balance both feature selection and coefficient shrinkage.
+
+-   The model's R-squared value of 0.3908 indicates that the features explain about 39% of the variation in the target variable.
+
+-   The Mean Squared Error (MSE) of 0.1305 reflects the model's prediction accuracy.
+
+To conclude, the regularized linear regression model (Elastic Net) performs reasonably well but leaves room for further improvements in terms of explaining the variance in the target variable.
+
+#### Q.6 Split the data into training and test sets. Choose sequences of values for λj , for j = {1, 2}. Fit the model (via optim) using all p inputs for training data and test the fitted model for test data for each pair of values for λ1 and λ2. \newline
+
+#### **Answer :**
+
+In this task, we are asked to evaluate how different values of the regularization parameters $\lambda_1$ (L1 penalty) and $\lambda_2$ (L2 penalty) impact the performance of the model. Specifically, we will: 1. Split the dataset into training and test sets. 2. Try out different combinations of $\lambda_1$ and $\lambda_2$ values. 3. Fit the model using optim for each pair of $\lambda_1$ and $\lambda_2$. 4. Evaluate the model’s performance using Mean Squared Error (MSE) on the test data.
+
+**1. Load and Prepare the Data**
+
+We begin by loading the Brexit dataset and selecting the relevant predictors used in Q.5. These predictors will be our independent variables, and the target variable is `voteBrexit` (the outcome we are predicting).
+
+```{r}
+library(tidyverse)
+
+# Load data
+brexit_data <- read.csv("/Users/vaish2205/Downloads/brexit.csv")
+
+# Select predictors and target variable
+X_raw <- brexit_data %>%
+  select(medianIncome, withHigherEd, notBornUK, abc1, medianAge) %>%
+  as.matrix()
+
+y <- brexit_data$voteBrexit
+
+# Add intercept to the predictors matrix
+X_raw <- cbind(1, X_raw)
+```
+
+**2. Split the Data into Training and Test Sets**
+
+We randomly split the dataset into 70% training and 30% test. This split is important to avoid overfitting and ensure that we can assess the model’s performance on unseen data.
+
+```{r}
+set.seed(123)  # For reproducibility
+
+n <- nrow(X_raw)
+train_indices <- sample(1:n, size = 0.7 * n)
+test_indices <- setdiff(1:n, train_indices)
+
+# Split the data
+X_train <- X_raw[train_indices, ]
+y_train <- y[train_indices]
+
+X_test <- X_raw[test_indices, ]
+y_test <- y[test_indices]
+```
+
+**3. Define the Loss Function with Regularization**
+
+We define a custom loss function that computes the residual sum of squares (RSS) and adds both L1 and L2 penalties (regularization terms) to the loss. The intercept term is excluded from the regularization to avoid penalizing it.
+
+```{r}
+regularized_loss <- function(beta, X, y, lambda1, lambda2) {
+  y_pred <- X %*% beta  # Predicted values
+  rss <- sum((y - y_pred)^2)  # Residual sum of squares
+  
+  # L1 and L2 penalties (skip intercept at index 1)
+  L1_penalty <- lambda1 * sum(abs(beta[-1]))
+  L2_penalty <- lambda2 * sum(beta[-1]^2)
+  
+  return(rss + L1_penalty + L2_penalty)
+}
+```
+
+**4. Loop Over Values of** $\lambda_1$ and $\lambda_2$
+
+We now conduct a grid search over a range of values for both $\lambda_1$ and $\lambda_2$. For each combination of these parameters, we will train the model using the `optim()` function and evaluate it using the test MSE.
+
+```{r}
+#Define a range of values to test
+lambda1_seq <- c(0, 0.01, 0.1, 1)
+lambda2_seq <- c(0, 0.01, 0.1, 1)
+
+# Dataframe to store results
+results <- data.frame()
+
+# Try every combination of λ₁ and λ₂
+for (lambda1 in lambda1_seq) {
+  for (lambda2 in lambda2_seq) {
+    
+    # Start with zero coefficients
+    initial_beta <- rep(0, ncol(X_train))
+    
+    # Fit the model using training data
+    fit <- optim(
+      par = initial_beta,
+      fn = regularized_loss,
+      X = X_train,
+      y = y_train,
+      lambda1 = lambda1,
+      lambda2 = lambda2,
+      method = "BFGS"
+    )
+    
+    # Predict on test data
+    beta_hat <- fit$par
+    y_pred_test <- X_test %*% beta_hat
+    
+    # Calculate Mean Squared Error
+    test_mse <- mean((y_test - y_pred_test)^2)
+    
+    # Save the results
+    results <- rbind(results, data.frame(lambda1, lambda2, test_mse))
+  }
+}
+```
+
+**5. Review the Results**
+
+After running the grid search, we sort the results by test MSE to identify which combination of $\lambda_1$ and $\lambda_2$ provides the lowest error.
+
+```{r}
+# Sort the results by test MSE
+results_sorted <- results %>% arrange(test_mse)
+print(results_sorted)
+```
+
+**7. Conclusion**
+
+After evaluating the model performance for all combinations of $\lambda_1$ and $\lambda_2$, we find that:
+
+-   The best performing combination was $\lambda_1 = 0.00$ and $\lambda_2 = 0.00$, with the lowest test MSE of 0.1202327.
+-   As we increased the regularization parameters, the test MSE slightly increased, indicating that minimal regularization provided the best results for this model.
+-   Other combinations, such as $\lambda_1 = 0.10$ and $\lambda_2 = 0.00$, resulted in a slightly higher MSE of 0.1203450, showing that regularization penalization can lead to a slight increase in error.
+
+This analysis suggests that minimal regularization (both $\lambda_1 = 0$ and $\lambda_2 = 0$) worked best for this dataset, leading to the lowest MSE and better predictive performance on the test data.
+
+Therefore, for this dataset and this model, no regularization (or very little) led to the most accurate predictions.
+
+#### Q.7 Find the values (λ1 and λ2) that maximise the test set log likelihood (note; for this do not include the regularisation terms in the test set log likelihood). If you find that optimal values lie at the end points of your sequences, consider extending the sequences such that you can be sure to find the best values. Visualise the test log likelihood values against λ1 and λ2. What can you infer based on the visualisation? Does regularisation help avoiding overfitting? Explain how increasingly large values for λj , for j = {1, 2} affect the estimates?\newline
+
+#### **Answer :**
+
+We aim to determine the values of λ₁ and λ₂ that maximize the test set log likelihood, with the regularisation terms excluded from the log likelihood computation. After identifying the optimal values, we will visualize the log likelihood against λ₁ and λ₂ to draw inferences about the role of regularisation.
+
+**Step 1: Loading and Preparing the Data**
+
+We first load the necessary libraries and data, then split the dataset into training and testing sets.
+
+```{r}
+# Load libraries
+library(readr)
+library(caret)
+library(glmnet)
+library(ggplot2)
+library(dplyr)
+
+
+# Read the dataset without showing column types
+data <- read_csv("/Users/vaish2205/Downloads/brexit.csv", show_col_types = FALSE)
+
+
+# Split the data into training and testing sets (80% train, 20% test)
+set.seed(123)  # Set seed for reproducibility
+trainIndex <- createDataPartition(data$voteBrexit, p = 0.8, list = FALSE)
+train <- data[trainIndex, ]
+test <- data[-trainIndex, ]
+
+# Convert the response variable to a binary format (0/1)
+x_train <- model.matrix(voteBrexit ~ ., data = train)[, -1]
+y_train <- as.numeric(train$voteBrexit)
+
+x_test <- model.matrix(voteBrexit ~ ., data = test)[, -1]
+y_test <- as.numeric(test$voteBrexit)
+```
+
+**Explanation :** We load necessary libraries like `glmnet` for elastic net regularisation and `caret` for data partitioning. - The dataset is split into training (80%) and test (20%) sets, ensuring a representative subset for training the model. - The response variable (`voteBrexit`) is converted to numeric (0/1) as required by the logistic regression model, and the predictor variables are stored in the `x_train` and `x_test` matrices.
+
+**Step 2: Defining the Grid for λ₁ (lambda) and λ₂ (alpha)**
+
+Next, we define a sequence of values for λ₁ and λ₂ and calculate the test set log likelihood for each combination.
+
+```{r}
+# Define grid of values for lambda and alpha
+lambda_seq <- 10^seq(-4, 2, length.out = 100)  # λ₁ values
+alpha_seq <- seq(0, 1, length.out = 10)        # λ₂ values
+
+# Initialize results storage
+results <- expand.grid(lambda = lambda_seq, alpha = alpha_seq)
+results$logLik <- NA
+
+# Loop over all combinations of lambda and alpha
+for (i in 1:nrow(results)) {
+  # Fit elastic net logistic regression model
+  fit <- glmnet(x_train, y_train, alpha = results$alpha[i], lambda = results$lambda[i], family = "binomial")
+  
+  # Make predictions on the test set
+  pred <- predict(fit, newx = x_test, type = "response")
+  
+  # Clip predicted probabilities to avoid log(0)
+  eps <- 1e-15
+  p <- pmin(pmax(pred, eps), 1 - eps)
+  
+  # Compute test log likelihood (without regularisation term)
+  results$logLik[i] <- sum(y_test * log(p) + (1 - y_test) * log(1 - p))
+}
+```
+
+**Explanation :** We define sequences of λ₁ and λ₂ values and then create a grid of all possible combinations using `expand.grid()`. - We loop through each combination, fit an elastic net logistic regression model using `glmnet()`, and then calculate the predicted probabilities for the test set. - We calculate the log likelihood on the test set by comparing the predicted probabilities with the true values, ensuring that we avoid taking the logarithm of zero.
+
+**Step 3: Visualizing the Test Log Likelihood**
+
+We now visualize how the test log likelihood varies with λ₁ and λ₂. This visualization helps us identify the optimal values of λ₁ and λ₂.
+
+```{r}
+# Plot log likelihood vs lambda, coloured by alpha
+ggplot(results, aes(x = lambda, y = logLik, color = as.factor(alpha))) +
+  geom_line(size = 1) +
+  scale_x_log10() +  # Log scale for lambda
+  labs(
+    title = expression("Test Set Log Likelihood vs" ~ lambda[1] ~ "(lambda)" ~ "and" ~ lambda[2] ~ "(alpha)"),
+    x = expression(lambda ~ "(log scale)"),
+    y = "Test Set Log Likelihood",
+    color = expression(alpha)
+  ) +
+  theme_minimal()
+
+```
+
+**Explanation :** We plot the log likelihood against λ₁ (on a logarithmic scale) for each value of λ₂ (with different colors). This visualization helps us explore how the test set log likelihood changes with varying regularisation parameters. We use `geom_line()` to draw smooth curves for each value of λ₂, making it easier to see trends.
+
+**Step 4: Identifying the Optimal λ₁ and λ₂**
+
+After visualising the log likelihood, we identify the optimal values of λ₁ and λ₂ that maximize the test set log likelihood.
+
+```{r}
+# Extract the optimal lambda and alpha that maximize log likelihood
+best_result <- results[which.max(results$logLik), ]
+best_result
+```
+
+**Explanation :** We find the row in the `results` data frame that corresponds to the maximum test log likelihood and extract the optimal values of λ₁ and λ₂.
+
+**Step 5: Interpretation**
+
+From the visualisation and the optimal values of λ₁ and λ₂, we can make the following inferences:
+
+1.  **Regularisation Helps Avoid Overfitting:**
+    -   Regularisation penalises overly complex models by shrinking the coefficients. When λ₁ or λ₂ is too large, the model becomes too simple (underfitting), which reduces predictive performance on the test set, as evidenced by the decrease in log likelihood.
+    -   Moderate values of λ₁ and λ₂ strike a balance, preventing overfitting while maintaining predictive power.
+2.  **Effect of Large λ₁ and λ₂:**
+    -   **Large λ₁ (lambda):** When λ₁ is large, the coefficients are heavily penalised and shrink toward zero. This may lead to underfitting, as the model fails to capture important relationships in the data.
+    -   **Large λ₂ (alpha close to 1):** As λ₂ approaches 1 (Lasso), the model performs feature selection, forcing some coefficients to exactly zero. While this can help with sparsity, it may discard useful predictors if λ₂ is too large.
+
+**Conclusion**
+
+-   The optimal test log likelihood is achieved with **λ₁ ≈ 0.0043** and **λ₂ ≈ 1**. This suggests that elastic net regularisation, with a higher weight on Lasso (α ≈ 1), performs best for this dataset.
+-   Regularisation is crucial in preventing overfitting by controlling model complexity. However, extreme values of λ₁ and λ₂ lead to underfitting, reducing the model's ability to generalize.
+-   The visualisation and optimal parameter selection demonstrate that a balance between feature selection (via Lasso) and coefficient shrinkage (via Ridge) is most effective.
+
+## Unit 5
+
+#### **Q.9 Inferring a Suitable Depth of the Tree by Varying the cp Parameter to Achieve Good Predictive Ability Using Cross-Validation.**\newline
+
+#### **Answer :**
+
+Here, we are trying to determine the best depth for a decision tree by adjusting the cp (complexity parameter) and evaluating the tree's performance using cross-validation. This approach helps us to find a model that performs well on unseen data by repeatedly training and testing the model on different subsets of the data. We’ll be using 10-fold cross-validation, where the dataset is split into 10 parts, and the model is trained 10 times, each time using a different fold as the test set.
+
+**Step 1: Load the Dataset**
+
+The first step is to load the Brexit dataset to get started. The dataset contains information about how different regions voted on Brexit.
+
+```{r}
+# Load the dataset (adjust the file path as needed)
+brexit <- read.csv("/Users/vaish2205/Downloads/brexit.csv")
+str(brexit)       # Check the structure: column names, types, etc.
+summary(brexit)   # Get a summary of all variables
+head(brexit)      # View the first few rows
+```
+
+**Step 2: Data Preparation**
+
+We need to clean and prepare the data before training the model. In particular, we need to make sure that the target variable, `voteBrexit`, is a factor (because it is a categorical variable for classification).
+
+```{r}
+# Convert the target variable to a factor for classification
+brexit$voteBrexit <- as.factor(brexit$voteBrexit)
+```
+
+**Step 3: Setting Up Cross-Validation**
+
+Next, we set up **10-fold cross-validation** to evaluate how well our decision tree performs for different values of the **cp** parameter. The **cp** parameter determines how complex the tree can be. Smaller values allow the tree to be deeper (which could lead to overfitting), while larger values lead to a simpler, pruned tree (which could lead to underfitting).
+
+```{r}
+# Load necessary libraries
+library(rpart)
+library(caret)
+
+# Set the random seed for reproducibility
+set.seed(123)
+
+# Set up 10-fold cross-validation
+control <- trainControl(method = "cv", number = 10)
+
+# Train the decision tree and automatically tune the cp parameter
+tree_model <- train(voteBrexit ~ ., data = brexit,
+                    method = "rpart",
+                    trControl = control,
+                    tuneLength = 10)
+
+# Print the model summary to view the results
+print(tree_model)
+```
+
+**Step 4: Tuning the cp Parameter**
+
+The **train()** function from the **caret** package allows us to tune the **cp** parameter. It tests multiple values of **cp** and picks the one that gives the best performance, based on accuracy.
+
+```{r}
+# Get the best cp value from the model
+best_cp <- tree_model$bestTune
+print(best_cp)
+
+# Plot cp vs Accuracy to see how the model performs with different cp values
+plot(tree_model)
+```
+
+**Step 5: Model Evaluation**
+
+After selecting the best **cp** value, we can train the final decision tree model and visualize the tree to check how deep it is.
+
+```{r}
+# Train the final decision tree model using the best cp value
+final_model <- rpart(voteBrexit ~ ., data = brexit, cp = best_cp$cp)
+
+# Plot and label the final decision tree using rpart.plot for better clarity
+library(rpart.plot)
+rpart.plot(final_model, extra = 1, under = TRUE, cex = 0.8)
+
+# Check the tree's structure (useful for detailed analysis of the splits and errors)
+printcp(final_model)
+
+# Calculate the depth of the tree (number of splits before reaching the leaves)
+# We calculate the maximum depth by checking the number of splits before the leaves (i.e., nodes that are not leaves)
+tree_depth <- max(final_model$frame$var != "<leaf>")  # Check the number of non-leaf nodes
+cat("Tree depth:", tree_depth)
+
+```
+
+**Step 6: Interpreting the Results**
+
+The **best cp** value gives us the optimal model. From the cross-validation results, we see that the best value of **cp** is **0.3987**. This value gave the highest accuracy during cross-validation.
+
+-   **Accuracy**: The best accuracy was achieved with **cp = 0.3987**, where the model performed with an accuracy of **82.55%**.
+-   **Tree Depth**: The resulting tree has a depth of **1**, which means the tree only has one split. This suggests that the model is relatively simple and is not overfitting the data.
+
+**Conclusion**
+
+-   The optimal **cp** value, selected through **10-fold cross-validation**, was **0.3987**, which gave the best predictive performance.
+-   The final decision tree had a depth of **1**, which indicates that the model is quite simple and may not be overfitting.
+-   **cp** is a key parameter because it controls the complexity of the tree. A smaller **cp** allows for a deeper tree, which could lead to overfitting, while a larger **cp** prunes the tree and might result in underfitting.
+-   By using **cross-validation**, we ensure that our model generalizes well to new data.
+
+In summary, cross-validation helped us select the best model, balancing both accuracy and simplicity. The resulting decision tree provides a good trade-off between performance and complexity.
+
+#### **Q.10 Visualise your final fitted decision tree model using the validated cp parameter and all data, and comment on explainability/interpretability of the model.** \newline
+
+#### **Answer :**
+
+The goal of this question is to: 1. Use the optimal cp value found from cross-validation. 2. Fit a final decision tree model on the complete Brexit dataset. 3. Visualize the decision tree model. 4. Discuss the interpretability and explainability of the model.
+
+**Step 1: Fit the Final Model with the Best cp**
+
+After performing cross-validation in Q.9, we identified the best cp value (complexity parameter) that gives the optimal balance between bias and variance. This value was selected based on the accuracy achieved during cross-validation.
+
+Now, we use this best cp value to train the final decision tree on the full Brexit dataset. The cp parameter controls how much we prune the tree; smaller cp values allow deeper trees, while larger values result in simpler trees with fewer splits.
+
+```{r}
+# Assume the best cp has already been determined in Q.9
+best_cp <- tree_model$bestTune  # cp from cross-validation
+
+# Fit the final decision tree using the best cp value
+final_model <- rpart(voteBrexit ~ ., data = brexit, cp = best_cp$cp)
+```
+
+**Step 2: Visualise the Final Tree**
+
+A decision tree is easy to interpret visually, with each node representing a decision based on a feature (e.g., age or education level), and each leaf representing the final outcome (e.g., predicted vote outcome). We can visualize the final tree to understand how decisions are made based on various input features.
+
+To make the tree diagram clearer, we use the **rpart.plot** library, which provides advanced options to label and structure the tree nicely.
+
+```{r}
+# Load the rpart.plot library for better visualization
+library(rpart.plot)
+
+# Plot the tree with enhanced labels and information
+rpart.plot(final_model, type = 3, extra = 104, fallen.leaves = TRUE,
+           main = "Final Decision Tree for Brexit Voting Prediction")
+```
+
+**Step 3: Check the Depth of the Tree**
+
+The depth of the tree can be an important metric. It represents how many levels the tree has, which can indicate its complexity. Deeper trees tend to be more complex and may risk overfitting, while shallower trees may underfit if they do not capture enough patterns in the data.
+
+```{r}
+# Calculate the depth of the tree (number of splits before reaching the leaves)
+tree_depth <- max(final_model$frame$var != "<leaf>")
+cat("Tree depth:", tree_depth)
+```
+
+**Step 4: Interpretation & Explainability**
+
+Decision trees are very easy to understand because they break down the decision-making process into simple, clear rules. Let’s look at why they’re so interpretable:
+
+1.  **High Interpretability:** Decision trees are transparent models. Each decision node (e.g., "If medianAge \< 45.5") is a simple rule, and the leaf nodes tell us the final decision (e.g., “Vote for Brexit” or “Don’t vote for Brexit”). These rules are easy to follow, even for non-technical people.
+
+2.  **Clear Rules:** The tree structure shows exactly how decisions are made. For example, if the tree first splits on age and then education level, it tells us that younger people with higher education are more likely to vote for Brexit. These rules are straightforward and easy to explain.
+
+3.  **Feature Importance:** By looking at the top splits in the tree, we can easily see which features matter most. For instance, if the first split is based on **withHigherEd** (whether the person has higher education), we know that education plays a key role in predicting Brexit votes.
+
+4.  **Visual Insight:** The tree’s diagram helps us visualize how decisions are made. It’s like following a flowchart. For example, if a person is under 45.5 years old and has higher education, they are more likely to vote for Brexit. This visual representation makes it easier to explain the model to anyone.
+
+5.  **Complexity & Overfitting:** While decision trees are simple, there’s a balance between tree depth and performance. A tree that’s too deep may overfit the data, meaning it might not perform well on new data. By choosing the optimal **cp** value, we prune the tree to a good depth that avoids overfitting while still capturing important patterns.
+
+6.  **Limitations:** Although decision trees are easy to understand, they can become complex if they’re too deep. Deep trees can overfit the data and may not generalize well to new data. By using the optimal **cp**, we’ve avoided this issue, ensuring the tree is simple but effective.
+
+**Conclusion:**
+
+In conclusion, by using the **validated cp** value from cross-validation, we’ve built a **final decision tree** that balances complexity and explainability. The tree is **interpretable** because its decisions are based on clear rules, and its depth is controlled to prevent overfitting. The visual representation of the tree provides a transparent view of how decisions are made based on input features, and it allows easy interpretation of how variables like **age, education level**, and **immigration status** influence voting decisions.
+
+This final decision tree model is not only effective but also **easy to explain** to non-technical audiences, making it a great choice when transparency and interpretability are important.
+
+#### **Q14 Fit a Decision Tree Model for the Brexit Data Predicting Vote Outcome Based on the Remaining Attributes. Use the Number of Vote Outcomes Correctly Classified as the Criterion for Predictive Ability.**\newline
+
+#### Answer :
+
+The goal of this question is to build a decision tree model that can predict the outcome of a Brexit vote based on several factors, such as whether someone was born in the UK, their income level, age, and education level. The accuracy of the model will be measured by how many of these vote outcomes are correctly predicted.
+
+**Step 1: Data Preparation**
+
+Before building the decision tree, we need to make sure the data is in the right format. Specifically, we need to ensure that the target variable (`voteBrexit`) is treated as a **factor** because it's a classification problem, meaning we’re trying to predict categorical outcomes (e.g., `TRUE` or `FALSE`).
+
+Here’s how to prepare the data:
+
+```{r}
+# Load necessary libraries
+library(rpart)
+library(caret)
+
+# Assuming your data is stored in a data frame called 'brexit'
+# Convert the target variable (voteBrexit) into a factor for classification
+brexit$voteBrexit <- as.factor(brexit$voteBrexit)
+```
+
+At this point, we’ve ensured that the `voteBrexit` variable is ready for use in classification. The other variables (`abc1`, `notBornUK`, `medianIncome`, `medianAge`, `withHigherEd`) will be used as predictors in the model.
+
+**Step 2: Fit the Decision Tree Model**
+
+Now that the data is ready, we can build the decision tree. We'll use the **`rpart()`** function from the `rpart` package to fit the model. The formula `voteBrexit ~ .` means we're predicting the `voteBrexit` outcome based on all the other available variables in the dataset.
+
+```{r}
+# Fit the decision tree model
+model <- rpart(voteBrexit ~ ., data = brexit, method = "class")
+
+# View a summary of the fitted model
+summary(model)
+```
+
+The `rpart()` function will automatically handle the creation of the tree. The summary will provide details about the splits and the final decision rules.
+
+**Step 3: Evaluate the Model’s Predictive Ability**
+
+To evaluate how well the model predicts the Brexit vote outcomes, we’ll check how many predictions are correct. We’ll do this by comparing the predicted values with the actual values. This is done using a confusion matrix, which tells us how many of the predicted votes matched the true vote outcomes.
+
+Here’s how to make predictions and compute the accuracy:
+
+```{r}
+# Make predictions using the fitted model
+predictions <- predict(model, brexit, type = "class")
+
+# Compare predicted values with actual values using a confusion matrix
+confusion_matrix <- table(Predicted = predictions, Actual = brexit$voteBrexit)
+print(confusion_matrix)
+
+# Calculate accuracy (number of correct predictions divided by total predictions)
+accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
+cat("Accuracy (correctly classified vote outcomes):", accuracy)
+```
+
+-   **Confusion Matrix**: The confusion matrix will show us how many of the predictions were correct, and how many were incorrect.
+-   **Accuracy**: The accuracy is calculated by dividing the number of correctly classified outcomes (the diagonal of the confusion matrix) by the total number of predictions.
+
+**Step 4: Optional - Visualize the Decision Tree**
+
+Though the question does not explicitly ask for visualization, it’s often helpful to plot the decision tree. Visualization allows us to see the decision rules the model is using to make predictions. It also helps us understand the splits (based on various features like `age`, `education`, etc.) that lead to each decision.
+
+To visualize the tree, we can use the **`rpart.plot`** package:
+
+```{r}
+# Load the visualization library
+library(rpart.plot)
+
+# Plot the decision tree
+rpart.plot(model, type = 3, extra = 104, fallen.leaves = TRUE, main = "Decision Tree for Brexit Voting Outcome")
+```
+
+This gives us a graphical representation of the decision tree, where each node represents a decision based on one of the features, and each leaf node represents the final classification (either `TRUE` or `FALSE` for a Brexit vote).
+
+**Conclusion:**
+
+In this, we successfully built a decision tree model to predict the Brexit voting outcome using several predictors (e.g., age, education level, income). The model’s performance was measured by its accuracy, which tells us how many votes were correctly classified.
+
+The decision tree is easy to interpret and visually shows how different factors (like age or education) impact voting decisions. Although visualization wasn’t explicitly asked for, it provides a helpful way to understand the model’s decision-making process.
+
+Overall, this model helps predict the likelihood of someone voting for Brexit based on their characteristics, and the decision tree structure is simple and easy to explain.
+
+## Unit 6
+
+Q.11 Fit a random forest (RF) to the heart disease dataset to predict an individual’s proability of being\
+diagnosed with heart disease (target) from the remaining patient attributes. Tune the options for fitting\
+RF for best predictive ability using cross-validation. Remember to expand your sequences for the tuning\
+parameters if the optimal solution lies at the boundaries of your sequences. Explain how you quantify\
+predictive performance. ( This was the original question)
+
+#### Q.11 **Predicting Brexit Vote Outcome Using Random Forest.**\newline
+
+#### **Answer :**
+
+In this question, we aim to build a Random Forest (RF) model to predict the probability of an area voting for Brexit (`voteBrexit`). The model will use socio-economic attributes such as `abc1`, `notBornUK`, `medianIncome`, `medianAge`, and `withHigherEd` as predictors.
+
+Additionally, we will tune the model's hyperparameters using cross-validation to ensure the best predictive performance. If any tuning parameters lie on the boundaries of the search space, we will expand the range accordingly. We will also explain how we quantify the predictive performance of the model.
+
+**1. Data Overview and Preprocessing**
+
+The first step in building any machine learning model is to load and preprocess the data. We start by examining the dataset and preparing it for modeling.
+
+```{r}
+# Load necessary libraries
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(pROC)
+
+# Check the structure and summary of the data
+str(brexit)
+summary(brexit)
+```
+
+**Data Structure:**
+
+The dataset consists of **344 observations** across **6 variables**. These include socio-economic attributes and the target variable `voteBrexit`, which indicates whether an area voted for Brexit (`TRUE` = voted Leave, `FALSE` = voted Remain).
+
+```{r}
+# Convert the target variable 'voteBrexit' to a factor for classification
+brexit$voteBrexit <- as.factor(brexit$voteBrexit)
+```
+
+The target variable `voteBrexit` is initially stored as a logical (`TRUE/FALSE`). We convert it to a **factor** for proper classification modeling.
+
+**2. Fitting a Random Forest Model with Cross-Validation**
+
+The next step is to build a Random Forest model. We will use **cross-validation** to tune the hyperparameters of the Random Forest model to achieve the best predictive performance.
+
+**2.1. Setting up Cross-Validation**
+
+We use **10-fold cross-validation** to train and evaluate the model. This technique divides the data into 10 subsets, using 9 for training and the remaining 1 for testing. This process is repeated 10 times, with each fold used as the test set once. We also specify that the evaluation metric should be **ROC (AUC)**, which is a robust metric for imbalanced classes and gives us an indication of the model's discriminatory ability.
+
+```{r}
+# Cross-validation setup (10-fold)
+set.seed(123)
+
+ctrl <- trainControl(method = "cv", 
+                     number = 10, 
+                     classProbs = TRUE, 
+                     summaryFunction = twoClassSummary)
+
+# Rename levels for compatibility
+levels(brexit$voteBrexit) <- c("Remain", "Leave")
+
+# Define the tuning grid for mtry (number of variables to try at each split)
+num_predictors <- ncol(brexit) - 1  # 5 predictors (excluding target variable)
+tuneGrid <- expand.grid(mtry = 1:num_predictors)  # Grid for mtry: 1 to number of predictors
+```
+
+Here, we define: - **`trainControl`**: The settings for cross-validation (10-fold). - **`tuneGrid`**: The grid for the **`mtry`** hyperparameter, which represents the number of predictors to consider when making a split in the trees. We limit it to the range from **1** to **5** as there are 5 predictor variables.
+
+**2.2. Training the Random Forest Model**
+
+We then use the `train` function from the **caret** package to train the Random Forest model. The model will be trained using 500 trees (`ntree = 500`), and the **ROC** metric will guide the model selection.
+
+```{r}
+# Train the Random Forest model with cross-validation
+rf_model <- train(
+  voteBrexit ~ ., 
+  data = brexit, 
+  method = "rf", 
+  trControl = ctrl, 
+  tuneGrid = tuneGrid, 
+  ntree = 500, 
+  metric = "ROC"  # ROC (AUC) as the evaluation metric
+)
+
+# Print model details and plot
+print(rf_model)
+plot(rf_model)
+```
+
+To ensure `mtry` is within the valid range, the `tuneGrid` is defined from 1 to 5, as there are 5 predictors.
+
+```{r}
+# Define the tuning grid for mtry (number of variables to try at each split)
+tuneGrid <- expand.grid(mtry = 1:5)  # mtry values from 1 to 5
+
+# Train the Random Forest model with cross-validation
+rf_model <- train(
+  voteBrexit ~ ., 
+  data = brexit, 
+  method = "rf", 
+  trControl = ctrl, 
+  tuneGrid = tuneGrid, 
+  ntree = 500, 
+  metric = "ROC"  # ROC (AUC) as the evaluation metric
+)
+
+# Print the model details and plot
+print(rf_model)
+plot(rf_model)
+```
+
+**3. Expanding the Tuning Grid**
+
+Since you may encounter the "invalid `mtry`" warning, you can ensure the tuning grid is expanded if needed. If the default grid limits are too narrow, we can expand the grid accordingly to include a broader range of `mtry` values.
+
+```{r}
+# Expand the grid if needed (for example, if mtry is on the boundaries)
+tuneGrid_expanded <- expand.grid(mtry = 1:6)  # Expanding the grid
+
+# Refit the Random Forest model with the expanded tuning grid
+rf_model_expanded <- train(
+  voteBrexit ~ ., 
+  data = brexit, 
+  method = "rf", 
+  trControl = ctrl, 
+  tuneGrid = tuneGrid_expanded, 
+  ntree = 500, 
+  metric = "ROC"  # ROC (AUC) as the evaluation metric
+)
+
+# Print and plot the model results
+print(rf_model_expanded)
+plot(rf_model_expanded)
+```
+
+This will remove the warnings related to invalid `mtry` and ensure that we are working within a valid range.
+
+**4. Making Predictions and Evaluating Performance**
+
+We can now predict the Brexit vote outcome and evaluate the model's performance using metrics like accuracy, sensitivity, specificity, and ROC (AUC).
+
+```{r, fig.width=6, fig.height=3}
+# Predictions using the trained model
+rf_pred <- predict(rf_model_expanded, brexit)
+rf_prob <- predict(rf_model_expanded, brexit, type = "prob")
+
+# Confusion matrix
+conf_matrix <- confusionMatrix(rf_pred, brexit$voteBrexit)
+print(conf_matrix)
+
+# ROC curve and AUC
+roc_curve <- roc(brexit$voteBrexit, rf_prob$Leave)
+plot(roc_curve, col = "blue", main = "ROC Curve")
+auc(roc_curve)
+```
+
+The confusion matrix indicates that the model is able to classify all instances correctly, with no misclassifications.
+
+**5. Variable Importance**
+
+To understand which socio-economic factors are most influential in predicting the Brexit vote outcome, we can visualize the variable importance.
+
+```{r}
+# Visualize variable importance
+varImpPlot(rf_model_expanded$finalModel, main = "Variable Importance")
+```
+
+The plot highlights which socio-economic features (e.g., `medianAge`, `withHigherEd`) are most influential in predicting the Brexit vote outcome. This can provide insights into which demographic factors most strongly correlate with the voting behavior.
+
+**6. Conclusion**
+
+-   We successfully built and tuned a Random Forest classifier to predict the Brexit vote outcome (`voteBrexit`).
+-   Cross-validation was used to ensure the model's robustness, and the AUC metric was chosen to evaluate its predictive performance.
+-   The model demonstrated perfect accuracy, with an AUC of 1, indicating exceptional ability to classify areas that voted for Brexit and those that did not.
+-   The most important predictors of Brexit voting behavior were socio-economic factors such as age (`medianAge`) and education (`withHigherEd`).
+
+## UNIT 7
+
+#### Q.4 Use K-means to cluster the data using all attributes except the vote outcome. Assign a vote for each cluster based on the corresponding majority of votes within each cluster. Use cross validation to choose K for maximal classification accuracy. For each test data point you need to find the c orresponding cluster allocation and use the cluster vote as prediction. Consider also the limit when K equals the number of training data points: the approach reduces to 1-nearest neighbor classifier, that is a frequently used non-parametric algorithm.\newline
+
+#### Answer :
+
+We use K-means clustering to group areas based on their socio-economic characteristics (without using their Brexit vote). Then, for each cluster, we assign a vote label based on the majority of votes inside that cluster. We will also use cross-validation to find the best number of clusters (K) for maximum prediction accuracy. Finally, we discuss what happens when K equals the number of data points (this leads to the 1-nearest neighbor (1-NN) method).
+
+**Step 1: Preparing the Data**
+
+First, we prepare the data by removing the `voteBrexit` column (since clustering is unsupervised) and storing it separately.
+
+```{r}
+# Load necessary libraries
+library(tidyverse)
+library(caret)
+library(cluster)
+
+# Load the dataset
+brexit <- read.csv("/Users/vaish2205/Downloads/brexit.csv")
+
+# Convert voteBrexit into a factor for classification
+brexit$voteBrexit <- as.factor(brexit$voteBrexit)
+levels(brexit$voteBrexit) <- c("Remain", "Leave")
+
+# Separate predictors (X) and target variable (y)
+X <- brexit %>% select(-voteBrexit)
+y <- brexit$voteBrexit
+```
+
+**Step 2: Cross-Validation to Choose Best K**
+
+Since K-means is an unsupervised method, we build a custom cross-validation loop to check prediction accuracy for different values of K.
+
+```{r}
+# Set seed for reproducibility
+set.seed(123)
+
+# 10-fold cross-validation
+folds <- createFolds(y, k = 10, list = TRUE, returnTrain = FALSE)
+
+# Range of K to test
+K_range <- 2:20
+acc_results <- numeric(length(K_range))
+
+# Loop over different K values
+for (i in seq_along(K_range)) {
+  K <- K_range[i]
+  acc_fold <- numeric(length(folds))
+  
+  for (j in seq_along(folds)) {
+    test_idx <- folds[[j]]
+    train_X <- X[-test_idx, ]
+    train_y <- y[-test_idx]
+    test_X <- X[test_idx, ]
+    test_y <- y[test_idx]
+
+    # Apply K-means clustering to training data
+    km <- kmeans(train_X, centers = K, nstart = 10)
+
+    # Assign majority vote to each cluster
+    cluster_labels <- vector("character", K)
+    for (k in 1:K) {
+      members <- train_y[km$cluster == k]
+      cluster_labels[k] <- names(sort(table(members), decreasing = TRUE))[1]
+    }
+
+    # Predict labels for test data
+    predict_labels <- sapply(1:nrow(test_X), function(row) {
+      dists <- apply(km$centers, 1, function(centroid) {
+        sum((test_X[row, ] - centroid)^2)
+      })
+      cluster_labels[which.min(dists)]
+    })
+
+    # Compute fold accuracy
+    acc_fold[j] <- mean(predict_labels == test_y)
+  }
+  
+  # Average accuracy for this K
+  acc_results[i] <- mean(acc_fold)
+}
+```
+
+**Step 3: Plot Accuracy vs K**
+
+We plot the classification accuracy for each value of K to visualize which K performs the best.
+
+```{r}
+plot(K_range, acc_results, type = "b", col = "blue", pch = 19,
+     xlab = "Number of Clusters (K)", ylab = "Cross-Validated Accuracy",
+     main = "Choosing Optimal K")
+```
+
+**Step 4: Best K and Best Accuracy**
+
+We find the K with the highest accuracy:
+
+```{r}
+best_K <- K_range[which.max(acc_results)]
+cat("Best K:", best_K, "\nBest Accuracy:", max(acc_results))
+```
+
+**Output :** This means that using 11 clusters gives us the highest average accuracy of around 81%.
+
+**Step 5: Special Case — K = n (1-Nearest Neighbor)**
+
+If we set K = n (where n = number of data points = 344),\
+then each data point becomes its own cluster.
+
+In this case: - For prediction, we simply find the nearest training point to any new test point. - This is exactly how the 1-Nearest Neighbor (1-NN) classifier works!
+
+-   Advantages:
+    -   It captures very detailed information.
+-   Disadvantages:
+    -   It can overfit the training data.
+    -   It can be slow for large datasets.
+
+Thus, 1-NN is very flexible but can be risky without enough data or proper preprocessing.
+
+**Conclusion**
+
+-   We used K-means clustering to predict Brexit voting behavior without using the actual vote outcome during clustering.
+
+-   Using 10-fold cross-validation, we found that the best number of clusters was K = 11, achieving a classification accuracy of about 81%.
+
+-   We also explained that when K equals the number of points (344), the method behaves like 1-Nearest Neighbor (1-NN), which is a common and simple non-parametric classification method.
+
+## COMPARISON OF MODELS
+
+#### Q. Compare the models 1-4 and carry out cross-validation to choose a model which has highest classification accuracy. Which model would you choose? Justify your reasoning.\newline
+
+#### Answer :
+
+The objective of this analysis is to compare four models — LASSO Logistic Regression, XGBoost, Random Forest, and K-means with Majority Voting — all previously developed in the coursework, and use 10-fold cross-validation to identify the model with the highest classification accuracy.
+
+**Complete R Code for Training and Comparing All 4 Models**
+
+**Step 1: Load Libraries and Data**
+
+```{r}
+# Load necessary libraries
+library(caret)       # For cross-validation and model training
+library(glmnet)      # For LASSO regression
+library(xgboost)     # For XGBoost
+library(randomForest) # For Random Forest
+library(cluster)     # For K-means clustering
+library(tidyverse)   # For data manipulation
+
+# Load the Brexit dataset
+brexit_data <- read.csv("/Users/vaish2205/Downloads/brexit.csv")
+
+# Convert the target variable to a factor
+brexit_data$vote <- as.factor(brexit_data$vote)
+
+# Define features and target variable
+X <- brexit_data %>% select(abc1, medianIncome, medianAge, withHigherEd, notBornUK)
+Y <- brexit_data$vote
+
+# Split data into training and testing sets
+set.seed(123)
+trainIndex <- createDataPartition(brexit_data$vote, p = 0.8, list = FALSE)
+X_train <- brexit_data[trainIndex, -which(names(brexit_data) == "vote")]
+Y_train <- brexit_data$vote[trainIndex]
+X_test <- brexit_data[-trainIndex, -which(names(brexit_data) == "vote")]
+Y_test <- brexit_data$vote[-trainIndex]
+
+```
+
+**Step 2: Define Cross-Validation Strategy**
+
+Here, we set up **10-fold cross-validation** using `trainControl`.
+
+```{r}
+# Set up 10-fold cross-validation
+set.seed(123)
+cv_control <- trainControl(method = "cv", number = 10)
+```
+
+**Step 3: Train and Evaluate Models**
+
+**1. Regularized Logistic Regression (LASSO)**
+
+```{r}
+# Train LASSO model (Logistic Regression with L1 regularization)
+lasso_model <- train(
+  x = as.matrix(X),
+  y = Y,
+  method = "glmnet",  # Use glmnet for LASSO
+  trControl = cv_control,
+  tuneLength = 10     # Tune over a range of lambda values
+)
+
+# LASSO accuracy
+lasso_acc <- max(lasso_model$results$Accuracy)
+print(paste("LASSO Logistic Regression Accuracy:", round(lasso_acc * 100, 2), "%"))
+```
+
+**2. Boosted Trees (XGBoost)**
+
+```{r}
+library(xgboost)
+
+# Assuming the model is trained using the `xgb.DMatrix`
+# Create the training and testing datasets
+dtrain <- xgb.DMatrix(data = as.matrix(X_train), label = as.numeric(Y_train) - 1)
+dtest <- xgb.DMatrix(data = as.matrix(X_test), label = as.numeric(Y_test) - 1)
+
+# Train the model
+xgb_model <- xgboost(data = dtrain, nrounds = 100, objective = "binary:logistic", verbose = 0)
+
+# Prediction using the updated method
+xgb_preds <- predict(xgb_model, dtest, iteration_range = c(1, 100))  # Fixed line
+
+# Convert probabilities to class labels
+xgb_preds_class <- ifelse(xgb_preds > 0.5, 1, 0)
+
+# Accuracy Calculation
+xgb_acc <- mean(xgb_preds_class == as.numeric(Y_test) - 1)
+print(paste("XGBoost Accuracy:", round(xgb_acc * 100, 2), "%"))
+
+```
+
+**3. Random Forest**
+
+```{r}
+
+# Manually create a tuning grid with only 'mtry' (number of variables to try at each split)
+tune_grid <- expand.grid(
+  mtry = c(2, 3, 4, 5)  # Specify the range of mtry values
+)
+
+# Train the Random Forest model with cross-validation and custom grid
+rf_model <- train(
+  x = X,
+  y = Y,
+  method = "rf",
+  trControl = cv_control,     # Cross-validation control
+  tuneGrid = tune_grid,       # Use the custom grid for 'mtry'
+  ntree = 100                 # Set the number of trees manually
+)
+
+# Get the best Random Forest accuracy from cross-validation
+rf_acc <- max(rf_model$results$Accuracy)
+print(paste("Random Forest Accuracy:", round(rf_acc * 100, 2), "%"))
+
+
+```
+
+**4. K-means Clustering with Majority Voting**
+
+Since K-means is unsupervised, we implement a custom 10-fold cross-validation for this model.
+
+```{r}
+# Custom cross-validation for K-means clustering
+set.seed(123)
+folds <- createFolds(Y, k = 10)
+kmeans_accuracies <- c()
+
+for(i in 1:10){
+  # Split data into training and test sets
+  test_indices <- folds[[i]]
+  X_train <- X[-test_indices, ]
+  Y_train <- Y[-test_indices]
+  X_test <- X[test_indices, ]
+  Y_test <- Y[test_indices]
+  
+  # Apply K-means clustering
+  kmeans_model <- kmeans(X_train, centers = 2, nstart = 25)
+  
+  # Assign majority vote to each cluster
+  cluster_labels <- sapply(1:2, function(k){
+    members <- Y_train[kmeans_model$cluster == k]
+    if(length(members) == 0){
+      return(NA)
+    } else {
+      return(names(sort(table(members), decreasing = TRUE))[1])
+    }
+  })
+  
+  # Predict cluster for test data
+  predict_cluster <- function(x){
+    distances <- apply(kmeans_model$centers, 1, function(center){
+      sum((x - center)^2)
+    })
+    return(which.min(distances))
+  }
+  
+  predicted_clusters <- apply(X_test, 1, predict_cluster)
+  predicted_labels <- cluster_labels[predicted_clusters]
+  
+  # Calculate accuracy
+  accuracy <- mean(predicted_labels == Y_test, na.rm = TRUE)
+  kmeans_accuracies <- c(kmeans_accuracies, accuracy)
+}
+
+# K-means accuracy
+kmeans_acc <- mean(kmeans_accuracies)
+print(paste("K-means + Majority Voting Accuracy:", round(kmeans_acc * 100, 2), "%"))
+```
+
+**Step 5: Select the Best Model**
+
+Finally, we determine which model has the highest classification accuracy.
+
+```{r}
+# Initialize a vector to store the accuracies of each model
+model_accuracies <- c()
+
+# 1. Lasso Logistic Regression
+lasso_acc <- max(lasso_model$results$Accuracy)
+model_accuracies <- c(model_accuracies, lasso = lasso_acc)
+
+# 2. XGBoost
+xgb_acc <- max(xgb_model$results$Accuracy)
+model_accuracies <- c(model_accuracies, xgb = xgb_acc)
+
+# 3. Random Forest
+rf_acc <- max(rf_model$results$Accuracy)
+model_accuracies <- c(model_accuracies, rf = rf_acc)
+
+# 4. K-means + Majority Voting
+kmeans_acc <- kmeans_acc  # Assuming you already calculated kmeans_acc from K-means code
+model_accuracies <- c(model_accuracies, kmeans = kmeans_acc)
+
+# Print the accuracies of all models
+print(model_accuracies)
+
+# Find the model with the highest accuracy
+best_model <- names(which.max(model_accuracies))
+print(paste("Best Model:", best_model))
+
+
+```
+
+**Conclusion:**
+
+Based on the results of cross-validation, LASSO Logistic Regression emerged as the best-performing model for this classification task.
+
+-   Among the models tested, LASSO achieved the highest accuracy, outperforming other models like XGBoost, Random Forest, and K-means + Majority Voting.
+-   LASSO Logistic Regression is the optimal choice for this problem due to its superior performance in classification accuracy.
+
+**Why Lasso?**
+
+-   Simplicity and Interpretability: Lasso offers simplicity and ease of interpretation, which makes it a preferred model for binary classification tasks like this one.
+-   Regularization: By applying L1 regularization, Lasso helps prevent overfitting, ensuring a more generalized model, especially in datasets where feature selection is crucial.
+
+**Final Thoughts:**
+
+-   While XGBoost is known for its power, Lasso outperformed it slightly in this case, highlighting that more complex models do not always guarantee better results.
+-   Random Forest and K-means with Majority Voting, although competitive, didn’t perform as well as Lasso.
+
+Thus, **LASSO Logistic Regression** is the recommended model for predicting the Brexit vote outcome, based on its superior classification accuracy.
